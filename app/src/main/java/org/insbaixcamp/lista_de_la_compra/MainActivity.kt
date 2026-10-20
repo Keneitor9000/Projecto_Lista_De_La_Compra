@@ -11,11 +11,27 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.tooling.preview.Preview
+import com.google.firebase.analytics.FirebaseAnalytics
 import org.insbaixcamp.lista_de_la_compra.ui.theme.Lista_De_La_CompraTheme
 
 class MainActivity : ComponentActivity() {
+
+    private lateinit var firebaseAnalytics: FirebaseAnalytics
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Obtener la instancia de FirebaseAnalytics.
+        firebaseAnalytics = FirebaseAnalytics.getInstance(this)
+
+        // Registrar un evento SELECT_ITEM en Firebase Analytics
+        val itemBundle = Bundle().apply {
+            putString(FirebaseAnalytics.Param.ITEM_ID, "id_1")
+            putString(FirebaseAnalytics.Param.ITEM_NAME, "ejemplo")
+            putString(FirebaseAnalytics.Param.CONTENT_TYPE, "image")
+        }
+        firebaseAnalytics.logEvent(FirebaseAnalytics.Event.SELECT_ITEM, itemBundle)
+
         enableEdgeToEdge()
         setContent {
             Lista_De_La_CompraTheme {
