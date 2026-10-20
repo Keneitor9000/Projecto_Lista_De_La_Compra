@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">Lista_De_La_Compra</string>
+    <string name="default_web_client_id" translatable="false">626858382371-placeholder.apps.googleusercontent.com</string>
 </resources>
