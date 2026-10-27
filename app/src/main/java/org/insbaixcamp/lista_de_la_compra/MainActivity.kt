@@ -43,6 +43,7 @@ import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.GoogleAuthProvider
 import com.google.firebase.auth.auth
 import kotlinx.coroutines.launch
+import org.insbaixcamp.lista_de_la_compra.ui.ShoppingAppScreen
 import org.insbaixcamp.lista_de_la_compra.ui.theme.Lista_De_La_CompraTheme
 
 class MainActivity : ComponentActivity() {
@@ -52,6 +53,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var credentialManager: CredentialManager
 
     private var currentUserState by mutableStateOf<FirebaseUser?>(null)
+    private var demoUserEmailState by mutableStateOf<String?>(null)
 
     companion object {
         private const val TAG = "MainActivity"
@@ -83,7 +85,9 @@ class MainActivity : ComponentActivity() {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                     MainScreen(
                         user = currentUserState,
+                        demoUserEmail = demoUserEmailState,
                         onSignInClick = { signInWithGoogle() },
+                        onDemoSignInClick = { demoUserEmailState = "usuario_demo@ejemplo.com" },
                         onSignOutClick = { signOut() },
                         onLogAnalyticsEvent = { logSampleAnalyticsEvent() },
                         modifier = Modifier.padding(innerPadding)
@@ -95,13 +99,16 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        // Verificar si el usuario ya inició sesión
+        // Verificar si el usuario ya inició sesión en Firebase
         val user = auth.currentUser
         updateUI(user)
     }
 
     private fun updateUI(user: FirebaseUser?) {
         currentUserState = user
+        if (user != null) {
+            demoUserEmailState = null
+        }
     }
 
     // --- Autenticación con Google usando Credential Manager ---
@@ -113,9 +120,18 @@ class MainActivity : ComponentActivity() {
             ""
         }
 
+        if (webClientId.isBlank() || webClientId.contains("placeholder")) {
+            Toast.makeText(
+                this,
+                "Para usar Google Sign-In real debes configurar tu Web Client ID en Firebase Console.",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+
         val googleIdOption = GetGoogleIdOption.Builder()
             .setServerClientId(webClientId)
             .setFilterByAuthorizedAccounts(false)
+            .setAutoSelectEnabled(false)
             .build()
 
         val request = GetCredentialRequest.Builder()
@@ -131,7 +147,11 @@ class MainActivity : ComponentActivity() {
                 handleSignIn(result.credential)
             } catch (e: GetCredentialException) {
                 Log.e(TAG, "Error al obtener credenciales", e)
-                Toast.makeText(this@MainActivity, "Error al iniciar sesión: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+                Toast.makeText(
+                    this@MainActivity,
+                    "No hay credenciales disponibles. Habilita Google Sign-In en Firebase Console y añade tu SHA-1.",
+                    Toast.LENGTH_LONG
+                ).show()
             }
         }
     }
@@ -164,6 +184,7 @@ class MainActivity : ComponentActivity() {
 
     private fun signOut() {
         auth.signOut()
+        demoUserEmailState = null
         lifecycleScope.launch {
             try {
                 val clearRequest = ClearCredentialStateRequest()
@@ -190,44 +211,39 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun MainScreen(
     user: FirebaseUser?,
+    demoUserEmail: String?,
     onSignInClick: () -> Unit,
+    onDemoSignInClick: () -> Unit,
     onSignOutClick: () -> Unit,
     onLogAnalyticsEvent: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(24.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
-    ) {
-        Text(
-            text = "Lista de la Compra",
-            style = MaterialTheme.typography.headlineMedium
+    val activeEmail = user?.email ?: demoUserEmail
+
+    if (activeEmail != null) {
+        // Cuando el usuario ha iniciado sesión (por Google o Demo), muestra las listas
+        ShoppingAppScreen(
+            currentUserEmail = activeEmail,
+            onSignOut = onSignOutClick
         )
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        if (user != null) {
+    } else {
+        // Pantalla de Inicio de Sesión
+        Column(
+            modifier = modifier
+                .fillMaxSize()
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
             Text(
-                text = "¡Hola, ${user.displayName ?: user.email ?: "Usuario"}!",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.primary
+                text = "Lista de la Compra",
+                style = MaterialTheme.typography.headlineMedium
             )
-            Text(
-                text = user.email ?: "",
-                style = MaterialTheme.typography.bodyMedium
-            )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
-            Button(onClick = onSignOutClick) {
-                Text("Cerrar Sesión")
-            }
-        } else {
             Text(
-                text = "No has iniciado sesión",
+                text = "Inicia sesión para gestionar tus listas de la compra",
                 style = MaterialTheme.typography.bodyLarge
             )
 
@@ -236,9 +252,13 @@ fun MainScreen(
             Button(onClick = onSignInClick) {
                 Text("Iniciar sesión con Google")
             }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            OutlinedButton(onClick = onDemoSignInClick) {
+                Text("Probar sin Google (Modo Demo)")
+            }
         }
-
-
     }
 }
 
@@ -248,7 +268,9 @@ fun MainScreenSignedOutPreview() {
     Lista_De_La_CompraTheme {
         MainScreen(
             user = null,
+            demoUserEmail = null,
             onSignInClick = {},
+            onDemoSignInClick = {},
             onSignOutClick = {},
             onLogAnalyticsEvent = {}
         )
