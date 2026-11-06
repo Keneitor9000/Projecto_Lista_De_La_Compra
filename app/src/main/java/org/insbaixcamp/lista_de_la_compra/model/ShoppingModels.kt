@@ -8,8 +8,8 @@ import java.util.UUID
  */
 data class ShoppingList(
     val id: String = UUID.randomUUID().toString(),
-    val name: String,
-    val ownerEmail: String,
+    val name: String = "",
+    val ownerEmail: String = "",
     val sharedWithEmails: List<String> = emptyList()
 )
 
@@ -18,8 +18,8 @@ data class ShoppingList(
  */
 data class Category(
     val id: String = UUID.randomUUID().toString(),
-    val listId: String,
-    val name: String
+    val listId: String = "",
+    val name: String = ""
 )
 
 /**
@@ -27,7 +27,7 @@ data class Category(
  */
 data class Product(
     val id: String = UUID.randomUUID().toString(),
-    val categoryId: String,
-    val name: String,
+    val categoryId: String = "",
+    val name: String = "",
     val isCompleted: Boolean = false
 )

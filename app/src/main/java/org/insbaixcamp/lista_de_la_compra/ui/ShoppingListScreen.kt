@@ -1,5 +1,6 @@
 package org.insbaixcamp.lista_de_la_compra.ui
 
+import android.util.Log
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -17,6 +18,8 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -32,6 +35,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -39,13 +43,19 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalInspectionMode
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.google.firebase.Firebase
+import com.google.firebase.firestore.FieldValue
+import com.google.firebase.firestore.firestore
 import org.insbaixcamp.lista_de_la_compra.model.Category
 import org.insbaixcamp.lista_de_la_compra.model.Product
 import org.insbaixcamp.lista_de_la_compra.model.ShoppingList
 import org.insbaixcamp.lista_de_la_compra.ui.theme.Lista_De_La_CompraTheme
+
+private const val TAG = "ShoppingAppScreen"
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -53,14 +63,74 @@ fun ShoppingAppScreen(
     currentUserEmail: String = "usuario@ejemplo.com",
     onSignOut: () -> Unit = {}
 ) {
-    // Listas sin datos de ejemplo (inician vacías)
-    val lists = remember { mutableStateListOf<ShoppingList>() }
-    val categories = remember { mutableStateListOf<Category>() }
-    val products = remember { mutableStateListOf<Product>() }
+    val isPreview = LocalInspectionMode.current
+    val db = remember { if (!isPreview) Firebase.firestore else null }
 
-    var selectedList by remember { mutableStateOf<ShoppingList?>(null) }
+    var lists by remember { mutableStateOf<List<ShoppingList>>(emptyList()) }
+    var categories by remember { mutableStateOf<List<Category>>(emptyList()) }
+    var products by remember { mutableStateOf<List<Product>>(emptyList()) }
+
+    var selectedListId by remember { mutableStateOf<String?>(null) }
     var showCreateListDialog by remember { mutableStateOf(false) }
     var listToDeleteConfirm by remember { mutableStateOf<ShoppingList?>(null) }
+
+    val selectedList = lists.find { it.id == selectedListId }
+
+    // --- Sincronización en tiempo real con Firebase Firestore ---
+
+    // 1. Escuchar la colección de LISTAS
+    DisposableEffect(currentUserEmail, db) {
+        if (db == null) return@DisposableEffect onDispose {}
+        val listener = db.collection("lists")
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    Log.e(TAG, "Error escuchando listas de Firestore", error)
+                    return@addSnapshotListener
+                }
+                if (snapshot != null) {
+                    val fetched = snapshot.documents.mapNotNull { it.toObject(ShoppingList::class.java) }
+                        .filter { item ->
+                            item.ownerEmail.equals(currentUserEmail, ignoreCase = true) ||
+                                    item.sharedWithEmails.any { it.equals(currentUserEmail, ignoreCase = true) } ||
+                                    currentUserEmail.contains("demo")
+                        }
+                    lists = fetched
+                }
+            }
+        onDispose { listener.remove() }
+    }
+
+    // 2. Escuchar la colección de CATEGORÍAS
+    DisposableEffect(db) {
+        if (db == null) return@DisposableEffect onDispose {}
+        val listener = db.collection("categories")
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    Log.e(TAG, "Error escuchando categorías", error)
+                    return@addSnapshotListener
+                }
+                if (snapshot != null) {
+                    categories = snapshot.documents.mapNotNull { it.toObject(Category::class.java) }
+                }
+            }
+        onDispose { listener.remove() }
+    }
+
+    // 3. Escuchar la colección de PRODUCTOS
+    DisposableEffect(db) {
+        if (db == null) return@DisposableEffect onDispose {}
+        val listener = db.collection("products")
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    Log.e(TAG, "Error escuchando productos", error)
+                    return@addSnapshotListener
+                }
+                if (snapshot != null) {
+                    products = snapshot.documents.mapNotNull { it.toObject(Product::class.java) }
+                }
+            }
+        onDispose { listener.remove() }
+    }
 
     if (selectedList == null) {
         Scaffold(
@@ -93,9 +163,9 @@ fun ShoppingAppScreen(
                     )
                 } else {
                     LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(lists) { list ->
+                        items(lists, key = { it.id }) { list ->
                             Card(
-                                modifier = Modifier.fillMaxWidth().clickable { selectedList = list }
+                                modifier = Modifier.fillMaxWidth().clickable { selectedListId = list.id }
                             ) {
                                 Row(
                                     modifier = Modifier.fillMaxWidth().padding(16.dp),
@@ -104,7 +174,7 @@ fun ShoppingAppScreen(
                                 ) {
                                     Column {
                                         Text(text = list.name, style = MaterialTheme.typography.titleMedium)
-                                        val isOwner = list.ownerEmail == currentUserEmail
+                                        val isOwner = list.ownerEmail.equals(currentUserEmail, ignoreCase = true)
                                         Text(
                                             text = if (isOwner) "Propia" else "Compartida por ${list.ownerEmail}",
                                             style = MaterialTheme.typography.bodySmall
@@ -129,7 +199,8 @@ fun ShoppingAppScreen(
                 text = { Text("¿Estás seguro de que quieres eliminar la lista \"${list.name}\"?") },
                 confirmButton = {
                     Button(onClick = {
-                        lists.remove(list)
+                        lists = lists.filterNot { it.id == list.id }
+                        db?.collection("lists")?.document(list.id)?.delete()
                         listToDeleteConfirm = null
                     }) { Text("Eliminar") }
                 },
@@ -155,7 +226,9 @@ fun ShoppingAppScreen(
                 confirmButton = {
                     Button(onClick = {
                         if (newListName.isNotBlank()) {
-                            lists.add(ShoppingList(name = newListName, ownerEmail = currentUserEmail))
+                            val newList = ShoppingList(name = newListName, ownerEmail = currentUserEmail)
+                            lists = lists + newList
+                            db?.collection("lists")?.document(newList.id)?.set(newList)
                             showCreateListDialog = false
                         }
                     }) { Text("Crear") }
@@ -166,38 +239,49 @@ fun ShoppingAppScreen(
             )
         }
     } else {
-        val currentList = selectedList!!
+        val currentList = selectedList
         ShoppingListDetailScreen(
             shoppingList = currentList,
             categories = categories.filter { it.listId == currentList.id },
             products = products,
-            onBack = { selectedList = null },
-            onAddCategory = { name -> categories.add(Category(listId = currentList.id, name = name)) },
+            onBack = { selectedListId = null },
+            onAddCategory = { name ->
+                val newCat = Category(listId = currentList.id, name = name)
+                categories = categories + newCat
+                db?.collection("categories")?.document(newCat.id)?.set(newCat)
+            },
             onEditCategory = { category, newName ->
-                val index = categories.indexOfFirst { it.id == category.id }
-                if (index != -1) categories[index] = category.copy(name = newName)
+                categories = categories.map { if (it.id == category.id) it.copy(name = newName) else it }
+                db?.collection("categories")?.document(category.id)?.update("name", newName)
             },
             onDeleteCategory = { category ->
-                categories.remove(category)
-                products.removeAll { it.categoryId == category.id }
+                categories = categories.filterNot { it.id == category.id }
+                products = products.filterNot { it.categoryId == category.id }
+                db?.collection("categories")?.document(category.id)?.delete()
             },
-            onAddProduct = { categoryId, name -> products.add(Product(categoryId = categoryId, name = name)) },
+            onAddProduct = { categoryId, name ->
+                val newProduct = Product(categoryId = categoryId, name = name)
+                products = products + newProduct
+                db?.collection("products")?.document(newProduct.id)?.set(newProduct)
+            },
             onEditProduct = { product, newName ->
-                val index = products.indexOfFirst { it.id == product.id }
-                if (index != -1) products[index] = product.copy(name = newName)
+                products = products.map { if (it.id == product.id) it.copy(name = newName) else it }
+                db?.collection("products")?.document(product.id)?.update("name", newName)
             },
             onToggleProduct = { product ->
-                val index = products.indexOfFirst { it.id == product.id }
-                if (index != -1) products[index] = product.copy(isCompleted = !product.isCompleted)
+                val updatedProduct = product.copy(isCompleted = !product.isCompleted)
+                products = products.map { if (it.id == product.id) updatedProduct else it }
+                db?.collection("products")?.document(product.id)?.update("isCompleted", updatedProduct.isCompleted)
             },
-            onDeleteProduct = { product -> products.remove(product) },
+            onDeleteProduct = { product ->
+                products = products.filterNot { it.id == product.id }
+                db?.collection("products")?.document(product.id)?.delete()
+            },
             onShareList = { email ->
-                val index = lists.indexOfFirst { it.id == currentList.id }
-                if (index != -1) {
-                    val updated = lists[index].copy(sharedWithEmails = lists[index].sharedWithEmails + email)
-                    lists[index] = updated
-                    selectedList = updated
-                }
+                val updatedList = currentList.copy(sharedWithEmails = currentList.sharedWithEmails + email)
+                lists = lists.map { if (it.id == currentList.id) updatedList else it }
+                db?.collection("lists")?.document(currentList.id)
+                    ?.update("sharedWithEmails", FieldValue.arrayUnion(email))
             }
         )
     }
@@ -226,6 +310,8 @@ fun ShoppingListDetailScreen(
     var productToEdit by remember { mutableStateOf<Product?>(null) }
     var productToDeleteConfirm by remember { mutableStateOf<Product?>(null) }
     var showShareDialog by remember { mutableStateOf(false) }
+
+    val collapsedCategoryIds = remember { mutableStateListOf<String>() }
 
     Scaffold(
         topBar = {
@@ -265,8 +351,9 @@ fun ShoppingListDetailScreen(
                 )
             } else {
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    items(categories) { category ->
+                    items(categories, key = { it.id }) { category ->
                         val categoryProducts = products.filter { it.categoryId == category.id }
+                        val isCollapsed = collapsedCategoryIds.contains(category.id)
 
                         Card(modifier = Modifier.fillMaxWidth()) {
                             Column(modifier = Modifier.padding(12.dp)) {
@@ -275,7 +362,30 @@ fun ShoppingListDetailScreen(
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text(text = category.name, style = MaterialTheme.typography.titleLarge)
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clickable {
+                                                if (isCollapsed) collapsedCategoryIds.remove(category.id)
+                                                else collapsedCategoryIds.add(category.id)
+                                            }
+                                    ) {
+                                        IconButton(onClick = {
+                                            if (isCollapsed) collapsedCategoryIds.remove(category.id)
+                                            else collapsedCategoryIds.add(category.id)
+                                        }) {
+                                            Icon(
+                                                imageVector = if (isCollapsed) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowUp,
+                                                contentDescription = if (isCollapsed) "Desplegar" else "Plegar"
+                                            )
+                                        }
+                                        Text(
+                                            text = category.name,
+                                            style = MaterialTheme.typography.titleLarge
+                                        )
+                                    }
+
                                     Row {
                                         IconButton(onClick = { categoryForNewProduct = category }) {
                                             Icon(Icons.Default.Add, contentDescription = "Añadir producto")
@@ -289,26 +399,28 @@ fun ShoppingListDetailScreen(
                                     }
                                 }
 
-                                categoryProducts.forEach { product ->
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Checkbox(
-                                            checked = product.isCompleted,
-                                            onCheckedChange = { onToggleProduct(product) }
-                                        )
-                                        Text(
-                                            text = product.name,
-                                            modifier = Modifier.weight(1f),
-                                            textDecoration = if (product.isCompleted) TextDecoration.LineThrough else TextDecoration.None,
-                                            style = MaterialTheme.typography.bodyLarge
-                                        )
-                                        IconButton(onClick = { productToEdit = product }) {
-                                            Icon(Icons.Default.Edit, contentDescription = "Editar producto")
-                                        }
-                                        IconButton(onClick = { productToDeleteConfirm = product }) {
-                                            Icon(Icons.Default.Delete, contentDescription = "Eliminar producto")
+                                if (!isCollapsed) {
+                                    categoryProducts.forEach { product ->
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Checkbox(
+                                                checked = product.isCompleted,
+                                                onCheckedChange = { onToggleProduct(product) }
+                                            )
+                                            Text(
+                                                text = product.name,
+                                                modifier = Modifier.weight(1f),
+                                                textDecoration = if (product.isCompleted) TextDecoration.LineThrough else TextDecoration.None,
+                                                style = MaterialTheme.typography.bodyLarge
+                                            )
+                                            IconButton(onClick = { productToEdit = product }) {
+                                                Icon(Icons.Default.Edit, contentDescription = "Editar producto")
+                                            }
+                                            IconButton(onClick = { productToDeleteConfirm = product }) {
+                                                Icon(Icons.Default.Delete, contentDescription = "Eliminar producto")
+                                            }
                                         }
                                     }
                                 }

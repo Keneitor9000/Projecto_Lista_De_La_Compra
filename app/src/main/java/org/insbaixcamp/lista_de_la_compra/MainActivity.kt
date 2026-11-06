@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -53,7 +52,6 @@ class MainActivity : ComponentActivity() {
     private lateinit var credentialManager: CredentialManager
 
     private var currentUserState by mutableStateOf<FirebaseUser?>(null)
-    private var demoUserEmailState by mutableStateOf<String?>(null)
 
     companion object {
         private const val TAG = "MainActivity"
@@ -62,16 +60,10 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Inicializar Firebase Analytics
         firebaseAnalytics = FirebaseAnalytics.getInstance(this)
-
-        // Inicializar Firebase Auth
         auth = Firebase.auth
-
-        // Inicializar Credential Manager
         credentialManager = CredentialManager.create(this)
 
-        // Registrar evento inicial de prueba en Analytics
         val itemBundle = Bundle().apply {
             putString(FirebaseAnalytics.Param.ITEM_ID, "id_1")
             putString(FirebaseAnalytics.Param.ITEM_NAME, "ejemplo")
@@ -85,11 +77,8 @@ class MainActivity : ComponentActivity() {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                     MainScreen(
                         user = currentUserState,
-                        demoUserEmail = demoUserEmailState,
                         onSignInClick = { signInWithGoogle() },
-                        onDemoSignInClick = { demoUserEmailState = "usuario_demo@ejemplo.com" },
                         onSignOutClick = { signOut() },
-                        onLogAnalyticsEvent = { logSampleAnalyticsEvent() },
                         modifier = Modifier.padding(innerPadding)
                     )
                 }
@@ -99,39 +88,20 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        // Verificar si el usuario ya inició sesión en Firebase
         val user = auth.currentUser
         updateUI(user)
     }
 
     private fun updateUI(user: FirebaseUser?) {
         currentUserState = user
-        if (user != null) {
-            demoUserEmailState = null
-        }
     }
 
-    // --- Autenticación con Google usando Credential Manager ---
-
     private fun signInWithGoogle() {
-        val webClientId = try {
-            getString(R.string.default_web_client_id)
-        } catch (_: Exception) {
-            ""
-        }
-
-        if (webClientId.isBlank() || webClientId.contains("placeholder")) {
-            Toast.makeText(
-                this,
-                "Para usar Google Sign-In real debes configurar tu Web Client ID en Firebase Console.",
-                Toast.LENGTH_LONG
-            ).show()
-        }
+        val webClientId = getString(R.string.default_web_client_id)
 
         val googleIdOption = GetGoogleIdOption.Builder()
             .setServerClientId(webClientId)
             .setFilterByAuthorizedAccounts(false)
-            .setAutoSelectEnabled(false)
             .build()
 
         val request = GetCredentialRequest.Builder()
@@ -147,11 +117,7 @@ class MainActivity : ComponentActivity() {
                 handleSignIn(result.credential)
             } catch (e: GetCredentialException) {
                 Log.e(TAG, "Error al obtener credenciales", e)
-                Toast.makeText(
-                    this@MainActivity,
-                    "No hay credenciales disponibles. Habilita Google Sign-In en Firebase Console y añade tu SHA-1.",
-                    Toast.LENGTH_LONG
-                ).show()
+                Toast.makeText(this@MainActivity, "Asegúrate de tener una cuenta de Google iniciada en el móvil", Toast.LENGTH_LONG).show()
             }
         }
     }
@@ -184,7 +150,6 @@ class MainActivity : ComponentActivity() {
 
     private fun signOut() {
         auth.signOut()
-        demoUserEmailState = null
         lifecycleScope.launch {
             try {
                 val clearRequest = ClearCredentialStateRequest()
@@ -196,38 +161,21 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
-
-    private fun logSampleAnalyticsEvent() {
-        val eventBundle = Bundle().apply {
-            putString(FirebaseAnalytics.Param.ITEM_ID, "id_demo")
-            putString(FirebaseAnalytics.Param.ITEM_NAME, "Demostración")
-            putString(FirebaseAnalytics.Param.CONTENT_TYPE, "Boton")
-        }
-        firebaseAnalytics.logEvent("click_boton_demo", eventBundle)
-        Toast.makeText(this, "¡Evento enviado a Firebase Analytics!", Toast.LENGTH_SHORT).show()
-    }
 }
 
 @Composable
 fun MainScreen(
     user: FirebaseUser?,
-    demoUserEmail: String?,
     onSignInClick: () -> Unit,
-    onDemoSignInClick: () -> Unit,
     onSignOutClick: () -> Unit,
-    onLogAnalyticsEvent: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val activeEmail = user?.email ?: demoUserEmail
-
-    if (activeEmail != null) {
-        // Cuando el usuario ha iniciado sesión (por Google o Demo), muestra las listas
+    if (user != null) {
         ShoppingAppScreen(
-            currentUserEmail = activeEmail,
+            currentUserEmail = user.email ?: "usuario@ejemplo.com",
             onSignOut = onSignOutClick
         )
     } else {
-        // Pantalla de Inicio de Sesión
         Column(
             modifier = modifier
                 .fillMaxSize()
@@ -252,12 +200,6 @@ fun MainScreen(
             Button(onClick = onSignInClick) {
                 Text("Iniciar sesión con Google")
             }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            OutlinedButton(onClick = onDemoSignInClick) {
-                Text("Probar sin Google (Modo Demo)")
-            }
         }
     }
 }
@@ -268,11 +210,8 @@ fun MainScreenSignedOutPreview() {
     Lista_De_La_CompraTheme {
         MainScreen(
             user = null,
-            demoUserEmail = null,
             onSignInClick = {},
-            onDemoSignInClick = {},
-            onSignOutClick = {},
-            onLogAnalyticsEvent = {}
+            onSignOutClick = {}
         )
     }
 }
