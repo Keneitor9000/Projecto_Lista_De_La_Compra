@@ -191,16 +191,33 @@ fun ShoppingAppScreen(
             }
         }
 
-        // Diálogo de confirmación para eliminar lista
+        // Diálogo de confirmación para eliminar lista (Borrado en Cascada)
         listToDeleteConfirm?.let { list ->
             AlertDialog(
                 onDismissRequest = { listToDeleteConfirm = null },
                 title = { Text("¿Eliminar lista?") },
-                text = { Text("¿Estás seguro de que quieres eliminar la lista \"${list.name}\"?") },
+                text = { Text("¿Estás seguro de que quieres eliminar la lista \"${list.name}\"? Se borrarán también sus categorías y productos.") },
                 confirmButton = {
                     Button(onClick = {
+                        // Encontrar las categorías y productos pertenecientes a esta lista
+                        val targetCategories = categories.filter { it.listId == list.id }
+                        val targetCategoryIds = targetCategories.map { it.id }.toSet()
+                        val targetProducts = products.filter { it.categoryId in targetCategoryIds }
+
+                        // Actualización local inmediata
                         lists = lists.filterNot { it.id == list.id }
+                        categories = categories.filterNot { it.listId == list.id }
+                        products = products.filterNot { it.categoryId in targetCategoryIds }
+
+                        // Eliminar en Firestore (Lista, Categorías y Productos)
                         db?.collection("lists")?.document(list.id)?.delete()
+                        for (category in targetCategories) {
+                            db?.collection("categories")?.document(category.id)?.delete()
+                        }
+                        for (product in targetProducts) {
+                            db?.collection("products")?.document(product.id)?.delete()
+                        }
+
                         listToDeleteConfirm = null
                     }) { Text("Eliminar") }
                 },
@@ -255,9 +272,15 @@ fun ShoppingAppScreen(
                 db?.collection("categories")?.document(category.id)?.update("name", newName)
             },
             onDeleteCategory = { category ->
+                val targetProducts = products.filter { it.categoryId == category.id }
+
                 categories = categories.filterNot { it.id == category.id }
                 products = products.filterNot { it.categoryId == category.id }
+
                 db?.collection("categories")?.document(category.id)?.delete()
+                for (product in targetProducts) {
+                    db?.collection("products")?.document(product.id)?.delete()
+                }
             },
             onAddProduct = { categoryId, name ->
                 val newProduct = Product(categoryId = categoryId, name = name)
