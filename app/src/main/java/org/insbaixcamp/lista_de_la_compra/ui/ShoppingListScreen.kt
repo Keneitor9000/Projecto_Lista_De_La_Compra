@@ -182,8 +182,11 @@ fun ShoppingAppScreen(
                                             style = MaterialTheme.typography.bodySmall
                                         )
                                     }
-                                    IconButton(onClick = { listToDeleteConfirm = list }) {
-                                        Icon(Icons.Default.Delete, contentDescription = "Eliminar lista")
+                                    val isOwner = list.ownerEmail.equals(currentUserEmail, ignoreCase = true)
+                                    if (isOwner) {
+                                        IconButton(onClick = { listToDeleteConfirm = list }) {
+                                            Icon(Icons.Default.Delete, contentDescription = "Eliminar lista")
+                                        }
                                     }
                                 }
                             }
